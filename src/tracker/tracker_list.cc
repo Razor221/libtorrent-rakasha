@@ -111,15 +111,20 @@ TrackerList::send_event(tracker::Tracker& tracker, tracker::TrackerState::event_
     }
   }
 
+  // Intercept the completed event and downgrade it to a standard update
+  if (event == tracker::TrackerState::EVENT_COMPLETED) {
+    event = tracker::TrackerState::EVENT_NONE;
+  }
+
   LT_LOG("sending %s : requester:%p url:%s",
          option_to_c_str_or_throw(OPTION_TRACKER_EVENT, event), tracker.get_worker(), tracker.url().c_str());
 
   tracker::TrackerParams params;
 
   params.numwant            = m_numwant;
-  params.uploaded_adjusted  = m_info->uploaded_adjusted();
-  params.completed_adjusted = m_info->completed_adjusted();
-  params.download_left      = m_info->slot_left()();
+  params.uploaded_adjusted  = 0;         // Spoofed upload bytes
+  params.completed_adjusted = 0;         // Spoofed downloaded bytes
+  params.download_left      = 1048576;   // Spoofed 1MB remaining
 
   tracker_thread::manager()->send_event(tracker, params, event);
 }
@@ -148,9 +153,9 @@ TrackerList::send_scrape(tracker::Tracker& tracker) {
   tracker::TrackerParams params;
 
   params.numwant            = m_numwant;
-  params.uploaded_adjusted  = m_info->uploaded_adjusted();
-  params.completed_adjusted = m_info->completed_adjusted();
-  params.download_left      = m_info->slot_left()();
+  params.uploaded_adjusted  = 0;         // Spoofed upload bytes
+  params.completed_adjusted = 0;         // Spoofed downloaded bytes
+  params.download_left      = 1048576;   // Spoofed 1MB remaining
 
   tracker_thread::manager()->send_scrape(tracker, params);
 }
