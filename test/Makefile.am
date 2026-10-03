@@ -1,4 +1,5 @@
 TESTS = \
+	LibTorrent_Test_Protocol \
 	LibTorrent_Test_Torrent_Net \
 	LibTorrent_Test_Torrent_Runtime \
 	LibTorrent_Test_Torrent_Utils \
@@ -52,6 +53,21 @@ LibTorrent_Test_Common = \
 	helpers/tracker_test.h \
 	helpers/utils.h
 
+# The two src/ files are compiled into the test binary itself: this test
+# constructs a full DownloadMain, and the convenience libraries have
+# circular references (other <-> torrent) that a single link pass cannot
+# close, so the leaf units the pass would miss are provided directly.
+LibTorrent_Test_Protocol_SOURCES = $(LibTorrent_Test_Common) \
+	protocol/test_extensions.cc \
+	protocol/test_extensions.h \
+	../src/data/socket_file.cc \
+	../src/utils/fd_close_queue.cc
+
+LibTorrent_Test_Protocol_LDADD = \
+	../src/libtorrent.la \
+	../src/libtorrent_other.la \
+	../src/torrent/libtorrent_torrent.la
+
 LibTorrent_Test_Torrent_Net_SOURCES = $(LibTorrent_Test_Common) \
 	torrent/net/test_address_info.cc \
 	torrent/net/test_address_info.h \
@@ -85,6 +101,10 @@ LibTorrent_Test_Torrent_Utils_SOURCES = $(LibTorrent_Test_Common) \
 LibTorrent_Test_Torrent_SOURCES = $(LibTorrent_Test_Common) \
 	torrent/test_dht_controller.cc \
 	torrent/test_dht_controller.h \
+	torrent/test_connection_list.cc \
+	torrent/test_connection_list.h \
+	torrent/test_dht_router.cc \
+	torrent/test_dht_router.h \
 	torrent/object_test.cc \
 	torrent/object_test.h \
 	torrent/object_test_utils.cc \
@@ -107,29 +127,52 @@ LibTorrent_Test_Torrent_SOURCES = $(LibTorrent_Test_Common) \
 	torrent/test_tracker_timeout.h
 
 LibTorrent_Test_Data_SOURCES = $(LibTorrent_Test_Common) \
+	data/test_block.cc \
+	data/test_block.h \
+	data/test_chunk.cc \
+	data/test_chunk.h \
 	data/test_chunk_list.cc \
 	data/test_chunk_list.h \
+	data/test_file_list.cc \
+	data/test_file_list.h \
+	data/test_file_manager.cc \
+	data/test_file_manager.h \
 	data/test_hash_check_queue.cc \
 	data/test_hash_check_queue.h \
 	data/test_hash_queue.cc \
 	data/test_hash_queue.h
 
 LibTorrent_Test_Net_SOURCES = $(LibTorrent_Test_Common) \
+	net/test_udns_stdrr.cc \
+	net/test_udns_stdrr.h \
 	net/test_curl_get.cc \
-	net/test_curl_get.h
+	net/test_curl_get.h \
+	net/test_udns_parse.cc \
+	net/test_udns_parse.h \
+	net/test_udns_resolver.cc \
+	net/test_udns_resolver.h
 
 LibTorrent_Test_Tracker_SOURCES = $(LibTorrent_Test_Common) \
+	tracker/test_udp_router.cc \
+	tracker/test_udp_router.h \
 	tracker/test_tracker_http.cc \
 	tracker/test_tracker_http.h
 
 LibTorrent_Test_SOURCES = $(LibTorrent_Test_Common) \
 	\
+	dht/test_dht_bucket.cc \
+	dht/test_dht_bucket.h \
+	\
 	rak/ranges_test.cc \
 	rak/ranges_test.h \
 	\
+	protocol/test_protocol_buffer.cc \
+	protocol/test_protocol_buffer.h \
 	protocol/test_request_list.cc \
 	protocol/test_request_list.h
 
+LibTorrent_Test_Protocol_CXXFLAGS = $(CPPUNIT_CFLAGS)
+LibTorrent_Test_Protocol_LDFLAGS = $(CPPUNIT_LIBS)
 LibTorrent_Test_Torrent_Net_CXXFLAGS = $(CPPUNIT_CFLAGS)
 LibTorrent_Test_Torrent_Net_LDFLAGS = $(CPPUNIT_LIBS)
 LibTorrent_Test_Torrent_Runtime_CXXFLAGS = $(CPPUNIT_CFLAGS)

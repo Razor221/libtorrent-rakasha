@@ -79,7 +79,12 @@ DhtRouter::DhtRouter(tracker::DhtController* controller, const Object& cache)
 
     if (cache.has_key("contacts")) {
       for (const auto& contact : cache.get_key_list("contacts")) {
-        auto litr = contact.as_list().begin();
+        const Object::list_type& list = contact.as_list();
+
+        if (list.size() != 2)
+          throw bencode_error("Loading cache: Invalid contact.");
+
+        auto litr = list.begin();
         auto host = litr->as_string();
         auto port = std::next(litr)->as_value();
 
@@ -150,7 +155,7 @@ DhtRouter::get_tracker(const HashString& hash, bool create) {
   if (itr != m_trackers.end())
     return itr->second;
 
-  if (!create)
+  if (!create || m_trackers.size() >= max_trackers)
     return NULL;
 
   auto [tr, inserted] = m_trackers.emplace(hash, new DhtTracker());
@@ -330,18 +335,6 @@ DhtRouter::node_inactive(const HashString& id, const sockaddr* sa) {
   return itr.node();
 }
 
-// We sent a query to the given node ID, but received a reply from a different
-// node ID, that means the address of the original ID is invalid now.
-void
-DhtRouter::node_invalid(const HashString& id) {
-  DhtNode* node = get_node(id);
-
-  if (node == NULL || node == this)
-    return;
-
-  delete_node(m_nodes.find(&node->id()));
-}
-
 Object*
 DhtRouter::store_cache(Object* container) const {
   container->insert_key("self_id", str());
@@ -486,11 +479,56 @@ DhtRouter::receive_timeout() {
     ++itr;
   }
 
+  evict_stale_trackers();
+
   m_controller->set_nodes_populated(check_nodes_populated());
 
   m_server.update();
 
   m_numRefresh++;
+}
+
+// Announces that keep every entry fresh would otherwise lock new info hashes
+// out of a full table, so make room by dropping the stalest entries.
+void
+DhtRouter::evict_stale_trackers() {
+  if (m_trackers.size() < max_trackers ||
+      this_thread::cached_seconds() - m_lastTrackerEvict < std::chrono::seconds(timeout_tracker_evict))
+    return;
+
+  // Keep the num_tracker_evict least recently announced trackers in a max-heap
+  // by last-seen time, so its front is the newest of them: an entry older than
+  // that front takes its place, and the heap ends holding the oldest to drop.
+  using tracker_age = std::pair<uint32_t, HashString>;
+  auto newer = [](const tracker_age& a, const tracker_age& b) { return a.first < b.first; };
+
+  std::vector<tracker_age> stale;
+  stale.reserve(num_tracker_evict);
+
+  for (const auto& [hash, tracker] : m_trackers) {
+    tracker_age entry{tracker->last_seen(), hash};
+
+    if (stale.size() < num_tracker_evict) {
+      stale.push_back(entry);
+      std::push_heap(stale.begin(), stale.end(), newer);
+
+    } else if (entry.first < stale.front().first) {
+      std::pop_heap(stale.begin(), stale.end(), newer);
+      stale.back() = entry;
+      std::push_heap(stale.begin(), stale.end(), newer);
+    }
+  }
+
+  for (const auto& [_, hash] : stale) {
+    auto itr = m_trackers.find(hash);
+
+    delete itr->second;
+    m_trackers.erase(itr);
+  }
+
+  m_lastTrackerEvict = this_thread::cached_seconds();
+
+  LT_LOG_THIS("evicted stale trackers : count:%zu", stale.size());
 }
 
 char*

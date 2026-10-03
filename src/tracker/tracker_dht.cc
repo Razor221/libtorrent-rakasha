@@ -59,6 +59,8 @@ TrackerDht::send_event(tracker::TrackerParams params, tracker::TrackerState::eve
 
   runtime::network_manager()->dht_controller()->announce(info().info_hash, m_weak_tracker);
 
+  auto guard = lock_guard();
+
   state().set_normal_interval(20 * 60s);
   state().set_min_interval(0s);
 }
@@ -121,7 +123,7 @@ TrackerDht::set_dht_announce_state() {
 
 void
 TrackerDht::receive_peers(AddressList&& address_list) {
-  LT_LOG("received peers : dht_state:%s replied:%d contacted:%d size:%" PRIu32,
+  LT_LOG("received peers : dht_state:%s replied:%d contacted:%d size:%zu",
          states[m_dht_state], m_replied.load(), m_contacted.load(), address_list.size());
 
   m_slot_new_peers(std::move(address_list));

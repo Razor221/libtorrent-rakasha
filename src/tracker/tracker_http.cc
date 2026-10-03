@@ -213,19 +213,21 @@ TrackerHttp::send_scrape_unsafe() {
 
 bool
 TrackerHttp::send_next_family(bool scrape) {
-  m_current_family = m_next_family;
-  m_next_family    = AF_UNSPEC;
-
-  if (m_current_family == AF_UNSPEC)
+  if (m_next_family == AF_UNSPEC)
     return false;
-
-  auto state = lock_and_latest_event();
 
   // TODO: If stopped state, don't bother if the other protocol hasn't been confirmed to work. (add vars to track this)
 
-  if ((m_current_family == AF_INET && runtime::network_config()->is_block_ipv4()) ||
-      (m_current_family == AF_INET6 && runtime::network_config()->is_block_ipv6()))
+  if ((m_next_family == AF_INET && runtime::network_config()->is_block_ipv4()) ||
+      (m_next_family == AF_INET6 && runtime::network_config()->is_block_ipv6())) {
+    m_next_family = AF_UNSPEC;
     return false;
+  }
+
+  m_current_family = m_next_family;
+  m_next_family    = AF_UNSPEC;
+
+  auto state = lock_and_latest_event();
 
   if (scrape)
     send_scrape_unsafe();
@@ -480,12 +482,16 @@ TrackerHttp::receive_failed(const std::string& msg) {
 
     LT_LOG("received scrape failure : url:%s : %s", info().url.c_str(), msg.c_str());
 
+    update_requesting_state();
+
     m_requested_scrape = false;
     m_slot_scrape_failure(msg);
     return;
   }
 
   if (send_next_family()) {
+    LT_LOG("received failure : first family : url:%s : %s", info().url.c_str(), msg.c_str());
+
     m_last_success       = false;
     m_last_error_message = msg;
     return;

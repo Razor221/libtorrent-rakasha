@@ -18,6 +18,9 @@ NetworkConfig* network_config() LIBTORRENT_EXPORT;
 
 class LIBTORRENT_EXPORT NetworkConfig {
 public:
+  using address_device      = std::pair<c_sa_shared_ptr, std::string>;
+  using address_device_both = std::tuple<c_sa_shared_ptr, std::string, c_sa_shared_ptr, std::string>;
+
   // TODO: Remove.
   static constexpr int iptos_default     = 0;
   static constexpr int iptos_lowdelay    = IPTOS_LOWDELAY;
@@ -58,17 +61,19 @@ public:
   std::string         bind_address_best_match_str() const;
   c_sa_shared_ptr     bind_address_or_unspec_and_null() const;
   c_sa_shared_ptr     bind_address_or_any_and_null() const;
-  c_sa_shared_ptr     bind_address_for_connect(int family) const;
-  c_sa_shared_ptr     bind_address_for_udp_connect(int family) const;
+  address_device      bind_address_for_tcp_connect(int family) const;
+  address_device      bind_address_for_udp_connect(int family) const;
 
   c_sa_shared_ptr     bind_inet_address() const;
   std::string         bind_inet_address_str() const;
   c_sa_shared_ptr     bind_inet6_address() const;
   std::string         bind_inet6_address_str() const;
 
-  std::tuple<c_sa_shared_ptr, c_sa_shared_ptr> bind_addresses_or_null() const;
-  std::tuple<c_sa_shared_ptr, c_sa_shared_ptr> bind_udp_addresses_or_null() const;
-  std::tuple<std::string, std::string>         bind_addresses_str() const;
+  address_device_both bind_tcp_addresses_or_null() const;
+  address_device_both bind_udp_addresses_or_null() const;
+
+  std::string         bind_inet_device_name() const;
+  std::string         bind_inet6_device_name() const;
 
   c_sa_shared_ptr     local_address_best_match() const;
   std::string         local_address_best_match_str() const;
@@ -89,18 +94,17 @@ public:
   uint16_t            local_port_for_family(int family) const;
   uint16_t            local_port_best_match() const;
 
-  void                set_bind_address(const sockaddr* sa);
-  void                set_bind_address_str(const std::string& addr);
-  void                set_bind_inet_address(const sockaddr* sa);
-  void                set_bind_inet_address_str(const std::string& addr);
-  void                set_bind_inet6_address(const sockaddr* sa);
-  void                set_bind_inet6_address_str(const std::string& addr);
-  void                set_local_address(const sockaddr* sa);
-  void                set_local_address_str(const std::string& addr);
-  void                set_local_inet_address(const sockaddr* sa);
-  void                set_local_inet_address_str(const std::string& addr);
-  void                set_local_inet6_address(const sockaddr* sa);
-  void                set_local_inet6_address_str(const std::string& addr);
+  void                set_bind_address(const std::string& addr);
+  void                set_bind_inet_address(const std::string& addr);
+  void                set_bind_inet6_address(const std::string& addr);
+
+  void                set_bind_device_name(const std::string& device_name);
+  void                set_bind_inet_device_name(const std::string& device_name);
+  void                set_bind_inet6_device_name(const std::string& device_name);
+
+  void                set_local_address(const std::string& addr);
+  void                set_local_inet_address(const std::string& addr);
+  void                set_local_inet6_address(const std::string& addr);
 
   void                set_local_inet_port(uint16_t port);
   void                set_local_inet6_port(uint16_t port);
@@ -132,7 +136,7 @@ protected:
   friend class torrent::runtime::NetworkManager;
   friend class torrent::runtime::ProxyManager;
 
-  using listen_addresses = std::tuple<c_sa_shared_ptr, c_sa_shared_ptr, bool>;
+  using listen_addresses = std::tuple<c_sa_shared_ptr, std::string, c_sa_shared_ptr, std::string, bool>;
   using subscriber_list  = std::vector<std::pair<void*, std::function<void()>>>;
 
   void                lock() const                    { m_mutex.lock(); }
@@ -152,14 +156,14 @@ private:
   std::string         generic_address_best_match_str(const c_sa_shared_ptr& inet_address, const c_sa_shared_ptr& inet6_address) const;
   c_sa_shared_ptr     generic_address_or_unspec_and_null(const c_sa_shared_ptr& inet_address, const c_sa_shared_ptr& inet6_address) const;
   c_sa_shared_ptr     generic_address_or_any_and_null(const c_sa_shared_ptr& inet_address, const c_sa_shared_ptr& inet6_address) const;
-  c_sa_shared_ptr     generic_address_for_connect(int family, bool is_udp, const c_sa_shared_ptr& inet_address, const c_sa_shared_ptr& inet6_address) const;
   c_sa_shared_ptr     generic_address_for_family(int family, const c_sa_shared_ptr& inet_address, const c_sa_shared_ptr& inet6_address) const;
 
   void                set_generic_address_unsafe(const char* category, c_sa_shared_ptr& inet_address, c_sa_shared_ptr& inet6_address, const sockaddr* sa);
   void                set_generic_inet_address_unsafe(const char* category, c_sa_shared_ptr& inet_address, const sockaddr* sa);
   void                set_generic_inet6_address_unsafe(const char* category, c_sa_shared_ptr& inet6_address, const sockaddr* sa);
 
-  std::tuple<c_sa_shared_ptr, c_sa_shared_ptr> bind_addresses_or_null_unsafe() const;
+  address_device      bind_address_for_connect_unsafe(int family) const;
+  address_device_both bind_addresses_or_null_unsafe() const;
 
   mutable std::mutex  m_mutex;
 
@@ -177,7 +181,9 @@ private:
   int                 m_priority{iptos_throughput};
 
   c_sa_shared_ptr     m_bind_inet_address;
+  std::string         m_bind_inet_device_name;
   c_sa_shared_ptr     m_bind_inet6_address;
+  std::string         m_bind_inet6_device_name;
   c_sa_shared_ptr     m_local_inet_address;
   c_sa_shared_ptr     m_local_inet6_address;
 

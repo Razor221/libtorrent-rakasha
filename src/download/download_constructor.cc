@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstring>
 #include <limits>
+#include <ranges>
 
 #include "manager.h"
 #include "download/download_wrapper.h"
@@ -269,12 +270,19 @@ DownloadConstructor::parse_multi_files(const Object& b, uint32_t chunk_size) {
 
 Path
 DownloadConstructor::create_path(const Object::list_type& plist) {
-  if (plist.empty())
-    throw input_error("Bad torrent file, \"path\" has zero entries.");
+  auto view = [&plist]() {
+      if (!plist.empty() && plist.front().as_string().empty())
+        return plist | std::views::drop(1);
+
+      return plist | std::views::drop(0);
+    }();
+
+  if (view.empty())
+    throw input_error("Bad torrent file, \"path\" has zero entries or only an empty entry.");
 
   Path p;
 
-  for (const auto& path : plist) {
+  for (const auto& path : view) {
     auto sanitized_name = sanitize_file_name(path.as_string(), "a value in dict-key \"path\"");
 
     if (!Path::is_valid_component(sanitized_name))
@@ -350,11 +358,12 @@ DownloadConstructor::parse_magnet_uri(Object& b, const std::string& uri) {
     raw_string tag(tagStart, pos - tagStart);
     pos++;
 
-    // hash may be base32 encoded (optional in BEP 0009 and common practice)
-    if (raw_bencode_equal_c_str(tag, "xt")) {
-      if (end - pos < 9 || std::memcmp(pos, "urn:btih:", 9) != 0)
-        throw input_error("Invalid magnet URI.");
+    // skip exact topics other than urn:btih, such as the urn:btmh a hybrid torrent adds
+    bool is_btih = raw_bencode_equal_c_str(tag, "xt") &&
+                   end - pos >= 9 && std::memcmp(pos, "urn:btih:", 9) == 0;
 
+    // hash may be base32 encoded (optional in BEP 0009 and common practice)
+    if (is_btih) {
       pos += 9;
 
       const char* nextPos = parse_base32_sha1(pos, end, hash);
@@ -391,7 +400,7 @@ DownloadConstructor::parse_magnet_uri(Object& b, const std::string& uri) {
       decoded.push_back(c);
     }
 
-    if (raw_bencode_equal_c_str(tag, "xt")) {
+    if (is_btih) {
       if (decoded.length() == torrent::HashString::size_data) {
         // url-encoded hash as per magnet URN specs
 

@@ -28,25 +28,6 @@ TrackerController::update_timeout(uint32_t seconds_to_next) {
   this_thread::scheduler()->update_wait_for_ceil_seconds(&m_task_timeout, std::chrono::seconds(seconds_to_next));
 }
 
-void
-TrackerController::update_timeout_next_to_request() {
-  auto itr = m_tracker_list->find_next_to_request(m_tracker_list->begin());
-
-  if (itr == m_tracker_list->end())
-    return;
-
-  std::chrono::seconds next_timeout{};
-
-  itr->lock_and_call_state([&next_timeout](auto& state) {
-      next_timeout = state.activity_time_next();
-    });
-
-  if (next_timeout <= this_thread::cached_seconds())
-    update_timeout(0);
-  else
-    update_timeout((next_timeout - this_thread::cached_seconds()).count());
-}
-
 inline tracker::TrackerState::event_enum
 TrackerController::current_send_event() const {
   switch ((m_flags & mask_send)) {
@@ -234,7 +215,7 @@ TrackerController::send_completed_event() {
   m_flags &= ~mask_send;
   m_flags |= flag_send_completed;
 
-  if (!(m_flags & flag_active) || !m_tracker_list->has_usable()) {
+  if (!(m_flags & flag_active) || !m_tracker_list->has_in_use()) {
     LT_LOG_TRACKER_EVENTS("sending completed event : queued", 0);
     return;
   }

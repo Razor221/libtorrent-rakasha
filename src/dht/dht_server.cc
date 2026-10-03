@@ -87,25 +87,29 @@ DhtServer::~DhtServer() {
 
 void
 DhtServer::start(int port) {
-  auto [bind_inet_address, bind_inet6_address] = runtime::network_config()->bind_udp_addresses_or_null();
+  auto [inet_address, inet_device, inet6_address, inet6_device] = runtime::network_config()->bind_udp_addresses_or_null();
 
-  if (bind_inet_address == nullptr)
+  if (inet_address == nullptr)
     throw resource_error("no valid bind address for DHT server");
 
   sa_unique_ptr bind_address;
+  std::string   bind_device;
 
-  switch (bind_inet_address->sa_family) {
+  switch (inet_address->sa_family) {
   case AF_INET:
-    bind_address = sa_copy(bind_inet_address.get());
+    bind_address = sa_copy(inet_address.get());
+    bind_device  = inet_device;
     break;
   case AF_UNSPEC:
     bind_address = sa_make_inet_any();
+    bind_device  = inet_device;
     break;
   default:
     throw resource_error("invalid address family for DHT server");
   }
 
-  m_router->set_address(bind_inet_address.get());
+  m_router->set_address(inet_address.get());
+
   sap_set_port(bind_address, port);
 
   LT_LOG_THIS("starting server : %s", sap_pretty_str(bind_address).c_str());
@@ -119,13 +123,17 @@ DhtServer::start(int port) {
 
   if (fd == -1) {
     LT_LOG_THIS("could not open datagram socket : %s", std::strerror(errno));
-
     throw resource_error("could not open datagram socket : " + std::string(strerror(errno)));
+  }
+
+  if (!bind_device.empty() && !fd_bind_to_device(fd, bind_device.c_str(), bind_address->sa_family)) {
+    LT_LOG_THIS("could not bind datagram socket to device : %s : %s", bind_device.c_str(), std::strerror(errno));
+    fd_close(fd);
+    throw resource_error("could not bind datagram socket to device : " + bind_device + " : " + std::string(strerror(errno)));
   }
 
   if (!fd_bind(fd, bind_address.get())) {
     LT_LOG_THIS("could not bind datagram socket : %s", std::strerror(errno));
-
     fd_close(fd);
     throw resource_error("could not bind datagram socket : " + std::string(strerror(errno)));
   }
@@ -193,7 +201,7 @@ DhtServer::find_node(const DhtBucket& contacts, const HashString& target) {
   auto n = search->get_contact();
 
   while (n != search->end()) {
-    add_transaction(std::unique_ptr<DhtTransaction>(new DhtTransactionFindNode(n)), packet_prio_low);
+    add_transaction(std::unique_ptr<DhtTransaction>(new DhtTransactionFindNode(search, n)), packet_prio_low);
     n = search->get_contact();
   }
 
@@ -213,7 +221,7 @@ DhtServer::announce(const DhtBucket& contacts, const HashString& infoHash, std::
   auto n = announce->get_contact();
 
   while (n != announce->end()) {
-    add_transaction(std::unique_ptr<DhtTransaction>(new DhtTransactionFindNode(n)), packet_prio_high);
+    add_transaction(std::unique_ptr<DhtTransaction>(new DhtTransactionFindNode(announce, n)), packet_prio_high);
     n = announce->get_contact();
   }
 
@@ -376,6 +384,9 @@ DhtServer::create_announce_peer_response(const DhtMessage& req, const sockaddr* 
 
   DhtTracker* tracker = m_router->get_tracker(*HashString::cast_from(info_hash.data()), true);
 
+  if (tracker == NULL)
+    throw dht_error(dht_error_generic, "Tracking too many info hashes");
+
   tracker->add_peer(reinterpret_cast<const sockaddr_in*>(sa)->sin_addr.s_addr, req[key_a_port].as_value());
 }
 
@@ -515,7 +526,7 @@ DhtServer::find_node_next(DhtTransactionSearch* transaction) {
   auto node = transaction->search()->get_contact();
 
   while (node != transaction->search()->end()) {
-    add_transaction(std::unique_ptr<DhtTransaction>(new DhtTransactionFindNode(node)), priority);
+    add_transaction(std::unique_ptr<DhtTransaction>(new DhtTransactionFindNode(transaction->search(), node)), priority);
     node = transaction->search()->get_contact();
   }
 
@@ -531,7 +542,7 @@ DhtServer::find_node_next(DhtTransactionSearch* transaction) {
     // We have found the 8 closest nodes to the info hash. Retrieve peers
     // from them and announce to them.
     for (node = announce->start_announce(); node != announce->end(); ++node)
-      add_transaction(std::unique_ptr<DhtTransaction>(new DhtTransactionGetPeers(node)), packet_prio_high);
+      add_transaction(std::unique_ptr<DhtTransaction>(new DhtTransactionGetPeers(transaction->search(), node)), packet_prio_high);
   }
 
   announce->update_status();
@@ -615,7 +626,7 @@ DhtServer::create_query(transaction_itr itr, int tID, [[maybe_unused]] const soc
       break;
   }
 
-  auto packet = std::make_shared<DhtTransactionPacket>(transaction->address(), query, tID, transaction);
+  auto packet = std::make_shared<DhtTransactionPacket>(transaction->address(), query, tID, itr->first);
 
   transaction->set_packet(packet);
   add_packet(packet, priority);
@@ -863,7 +874,7 @@ DhtServer::process_queue(packet_queue& queue) {
     DhtTransaction::key_type transactionKey = 0;
 
     if(packet->has_transaction())
-      transactionKey = packet->transaction()->key(packet->id());
+      transactionKey = packet->transaction_key();
 
     // Make sure its transaction hasn't timed out yet, if it has/had one
     // and don't bother sending non-transaction packets (replies) after
@@ -900,7 +911,7 @@ DhtServer::process_queue(packet_queue& queue) {
       auto itr = m_transactions.find(transactionKey);
 
       if (itr != m_transactions.end())
-        packet->transaction()->reset_packet();
+        itr->second->reset_packet();
     }
   }
 }

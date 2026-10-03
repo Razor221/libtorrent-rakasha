@@ -20,6 +20,16 @@
 
 namespace torrent {
 
+namespace {
+
+// Addresses a remote peer list must never be able to point the client at.
+bool
+is_unroutable_peer(const sockaddr* sa) {
+  return sa_is_any(sa) || sa_is_broadcast(sa) || sa_is_loopback(sa) || sa_is_link_local(sa);
+}
+
+} // namespace
+
 ipv4_table PeerList::m_ipv4_table;
 
 PeerList::PeerList()
@@ -130,7 +140,8 @@ PeerList::insert_available(const void* al) {
     auto addr_str = sa_addr_str(&addr.sa);
     auto port = sa_port(&addr.sa);
 
-    if (!socket_address_key::is_comparable_sockaddr(&addr.sa) || port == 0) {
+    if (!socket_address_key::is_comparable_sockaddr(&addr.sa) || port == 0 ||
+        is_unroutable_peer(&addr.sa)) {
       invalid++;
       LT_LOG_ADDRESS("adding available address: skipped invalid : %s", sa_pretty_str(&addr.sa).c_str());
       continue;
@@ -335,7 +346,7 @@ PeerList::disconnected(iterator itr, int flags) {
   if (itr->second->transfer_counter() != 0) {
     // Currently we only log these as it only affects the culling of
     // peers.
-    LT_LOG_EVENTS("disconnected with non-zero transfer counter (%" PRIu32 ") for peer %40s",
+    LT_LOG_EVENTS("disconnected with non-zero transfer counter (%" PRIu32 ") for peer %40.40s",
                   itr->second->transfer_counter(), itr->second->id_hex());
   }
 
@@ -401,7 +412,7 @@ PeerList::insert_pex_list(const raw_string& pex_list) {
   l.parse_address_compact(pex_list);
   l.sort_and_unique();
 
-  LT_LOG_EVENTS("inserting pex list: %" PRIu32 " peers", l.size());
+  LT_LOG_EVENTS("inserting pex list: %zu peers", l.size());
 
   return insert_available(&l);
 }

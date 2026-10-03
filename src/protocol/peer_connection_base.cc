@@ -20,7 +20,7 @@
 #include "torrent/utils/log.h"
 
 #define LT_LOG_PIECE_EVENTS(log_fmt, ...)                               \
-  lt_log_print_info(LOG_PROTOCOL_PIECE_EVENTS, this->download()->info(), "piece_events", "%40s " log_fmt, this->peer_info()->id_hex(), __VA_ARGS__);
+  lt_log_print_info(LOG_PROTOCOL_PIECE_EVENTS, this->download()->info(), "piece_events", "%40.40s " log_fmt, this->peer_info()->id_hex(), __VA_ARGS__);
 
 
 namespace torrent {
@@ -107,6 +107,9 @@ PeerConnectionBase::initialize(DownloadMain* download, PeerInfo* peerInfo, int f
 
   } catch (const close_connection&) {
     // The handshake manager closes the socket for us.
+    if (!m_extensions->is_default())
+      delete m_extensions;
+
     m_peerInfo   = nullptr;
     m_download   = nullptr;
     m_extensions = nullptr;
@@ -672,7 +675,7 @@ PeerConnectionBase::down_extension() {
 
   // If extension can't be processed yet (due to a pending write),
   // disable reads until the pending message is completely sent.
-  if (m_extensions->is_complete() && !m_extensions->is_invalid() && !m_extensions->read_done()) {
+  if (m_extensions->is_complete() && !m_extensions->is_invalid() && !m_extensions->read_done(true)) {
     this_thread::poll()->remove_read(this);
     return false;
   }
@@ -789,13 +792,10 @@ PeerConnectionBase::up_extension() {
   m_extension_message.clear();
 
   // If we have an unprocessed message, process it now and enable reads again.
-  if (m_extensions->is_complete() && !m_extensions->is_invalid()) {
-    // DEBUG: What, this should fail when we block, no?
-    if (!m_extensions->read_done())
-      throw internal_error("PeerConnectionBase::up_extension could not process complete extension message.");
-
+  // It can still be blocked by a reply queued ahead of it, in which case the
+  // next completed extension write tries again.
+  if (m_extensions->is_complete() && !m_extensions->is_invalid() && m_extensions->read_done(true))
     this_thread::poll()->insert_read(this);
-  }
 
   return true;
 }
@@ -966,9 +966,6 @@ PeerConnectionBase::send_pex_message() {
 
   // Message to tell peer to stop/start doing PEX is small so send it first.
   if (m_send_pex_mask & (PEX_ENABLE | PEX_DISABLE)) {
-    if (!m_extensions->is_remote_supported(ProtocolExtension::UT_PEX))
-      throw internal_error("PeerConnectionBase::send_pex_message() Not supported by peer.");
-
     write_prepare_extension(ProtocolExtension::HANDSHAKE,
                             ProtocolExtension::generate_toggle_message(ProtocolExtension::UT_PEX, (m_send_pex_mask & PEX_ENABLE) != 0));
 
