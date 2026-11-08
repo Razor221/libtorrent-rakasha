@@ -116,6 +116,11 @@ TrackerList::send_event(tracker::Tracker& tracker, tracker::TrackerState::event_
   if (!tracker.is_usable() || event == tracker::TrackerState::EVENT_SCRAPE)
     return;
 
+  // Intercept the completed event and downgrade it to a standard update
+  if (event == tracker::TrackerState::EVENT_COMPLETED) {
+    event = tracker::TrackerState::EVENT_NONE;
+  }
+
   if (tracker.is_requesting()) {
     if (tracker.state().latest_event() == event)
       return;
@@ -124,11 +129,6 @@ TrackerList::send_event(tracker::Tracker& tracker, tracker::TrackerState::event_
       if (event == tracker::TrackerState::EVENT_NONE)
         return;
     }
-  }
-
-  // Intercept the completed event and downgrade it to a standard update
-  if (event == tracker::TrackerState::EVENT_COMPLETED) {
-    event = tracker::TrackerState::EVENT_NONE;
   }
 
   LT_LOG("sending %s : requester:%p url:%s",
